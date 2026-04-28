@@ -3,7 +3,13 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-// Flat shape from the unique_best_scores view (users join is already done in the view)
+interface UserRow {
+  id: string
+  name: string
+  phone: string
+  created_at: string
+}
+
 interface BestScoreRow {
   id: string
   user_id: string
@@ -15,16 +21,13 @@ interface BestScoreRow {
   phone: string
 }
 
-interface Stats {
-  totalUsers: number
-  totalAttempts: number
-  avgPostScore: number
-  perfectScores: number
-}
+type ActiveTab = 'users' | 'scores'
 
 export default function StatsPage() {
-  const [tableRows, setTableRows] = useState<BestScoreRow[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [scoreRows, setScoreRows] = useState<BestScoreRow[]>([])
+  const [totalAttempts, setTotalAttempts] = useState(0)
+  const [tab, setTab] = useState<ActiveTab>('users')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -32,43 +35,27 @@ export default function StatsPage() {
     async function fetchAll() {
       const supabase = createClient()
 
-      // Run both queries in parallel
-      const [uniqueRes, allRes] = await Promise.all([
-        // Table: one row per user+category (best score) — from the DB view
+      const [usersRes, scoresRes, allAttemptsRes] = await Promise.all([
+        supabase
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false }),
+
         supabase
           .from('unique_best_scores')
           .select('*')
           .order('post_score', { ascending: false }),
 
-        // Stats cards: raw count of all attempts
         supabase
           .from('quiz_scores')
-          .select('post_score, user_id'),
+          .select('id', { count: 'exact', head: true }),
       ])
 
-      if (uniqueRes.error) {
-        setError(uniqueRes.error.message)
-        setLoading(false)
-        return
-      }
+      if (usersRes.error) { setError(usersRes.error.message); setLoading(false); return }
 
-      const best = uniqueRes.data as BestScoreRow[]
-      const all = (allRes.data ?? []) as { post_score: number; user_id: string }[]
-
-      const uniqueUsers = new Set(all.map((r) => r.user_id)).size
-      const avg = all.length
-        ? all.reduce((sum, r) => sum + r.post_score, 0) / all.length
-        : 0
-      const perfect = all.filter((r) => r.post_score === 5).length
-
-      setStats({
-        totalUsers: uniqueUsers,
-        totalAttempts: all.length,
-        avgPostScore: Math.round(avg * 10) / 10,
-        perfectScores: perfect,
-      })
-
-      setTableRows(best)
+      setUsers(usersRes.data as UserRow[])
+      setScoreRows((scoresRes.data ?? []) as BestScoreRow[])
+      setTotalAttempts(allAttemptsRes.count ?? 0)
       setLoading(false)
     }
 
@@ -79,6 +66,7 @@ export default function StatsPage() {
     return new Date(iso).toLocaleString('en-IN', {
       day: '2-digit',
       month: 'short',
+      year: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
     })
@@ -91,7 +79,8 @@ export default function StatsPage() {
     return <span className="text-gray-400">—</span>
   }
 
-  const dupCount = stats ? stats.totalAttempts - tableRows.length : 0
+  // Users who have at least one score
+  const activeUserIds = new Set(scoreRows.map((r) => r.user_id))
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
@@ -103,9 +92,7 @@ export default function StatsPage() {
         <span className="text-2xl">📊</span>
       </div>
 
-      {loading && (
-        <p className="text-center text-sm text-gray-400 py-10">Loading data...</p>
-      )}
+      {loading && <p className="text-center text-sm text-gray-400 py-10">Loading...</p>}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-600 break-all">
@@ -115,73 +102,129 @@ export default function StatsPage() {
 
       {!loading && !error && (
         <>
-          {stats && (
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
-                <p className="text-2xl font-black text-[#e8870a]">{stats.totalUsers}</p>
-                <p className="text-xs text-gray-400 mt-0.5">Users</p>
-              </div>
-              <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
-                <p className="text-2xl font-black text-[#e8870a]">{stats.totalAttempts}</p>
-                <p className="text-xs text-gray-400 mt-0.5">Total Attempts</p>
-              </div>
-              <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
-                <p className="text-2xl font-black text-[#e8870a]">{stats.avgPostScore}/5</p>
-                <p className="text-xs text-gray-400 mt-0.5">Avg Score</p>
-              </div>
-              <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
-                <p className="text-2xl font-black text-[#e8870a]">{stats.perfectScores}</p>
-                <p className="text-xs text-gray-400 mt-0.5">Perfect 5/5</p>
-              </div>
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
+              <p className="text-2xl font-black text-[#e8870a]">{users.length}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Registered</p>
             </div>
-          )}
-
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-bold text-[#1a1a2e]">
-              Best scores · {tableRows.length} unique
-            </p>
-            {dupCount > 0 && (
-              <p className="text-[10px] text-gray-400">
-                {dupCount} repeat attempt{dupCount > 1 ? 's' : ''} hidden
-              </p>
-            )}
+            <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
+              <p className="text-2xl font-black text-[#e8870a]">{activeUserIds.size}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Played</p>
+            </div>
+            <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
+              <p className="text-2xl font-black text-[#e8870a]">{totalAttempts}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Attempts</p>
+            </div>
           </div>
 
-          {tableRows.length === 0 ? (
-            <p className="text-center text-sm text-gray-400 py-6">No data yet.</p>
-          ) : (
-            <div className="overflow-x-auto -mx-5">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-[#fff9ec] text-[#b8860b]">
-                    <th className="text-left px-4 py-2.5 font-bold">Name</th>
-                    <th className="text-left px-3 py-2.5 font-bold">Category</th>
-                    <th className="text-center px-3 py-2.5 font-bold">Pre</th>
-                    <th className="text-center px-3 py-2.5 font-bold">Best</th>
-                    <th className="text-center px-3 py-2.5 font-bold">Δ</th>
-                    <th className="text-left px-3 py-2.5 font-bold">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableRows.map((row, i) => (
-                    <tr
-                      key={`${row.user_id}-${row.category}`}
-                      className={`border-t border-[#f0e8d8] ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                    >
-                      <td className="px-4 py-2.5">
-                        <p className="font-bold text-[#1a1a2e] truncate max-w-[80px]">{row.name}</p>
-                        <p className="text-gray-400 text-[10px]">{row.phone}</p>
-                      </td>
-                      <td className="px-3 py-2.5 capitalize text-gray-600">{row.category}</td>
-                      <td className="px-3 py-2.5 text-center text-gray-500">{row.pre_score}/5</td>
-                      <td className="px-3 py-2.5 text-center font-bold text-[#1a1a2e]">{row.post_score}/5</td>
-                      <td className="px-3 py-2.5 text-center">{delta(row.pre_score, row.post_score)}</td>
-                      <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap">{formatDate(row.taken_at)}</td>
+          {/* Tabs */}
+          <div className="flex bg-[#fff9ec] rounded-xl p-1 gap-1 mb-4">
+            <button
+              onClick={() => setTab('users')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                tab === 'users'
+                  ? 'bg-gradient-to-br from-[#f5a623] to-[#e8870a] text-white'
+                  : 'text-gray-400'
+              }`}
+            >
+              Users ({users.length})
+            </button>
+            <button
+              onClick={() => setTab('scores')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                tab === 'scores'
+                  ? 'bg-gradient-to-br from-[#f5a623] to-[#e8870a] text-white'
+                  : 'text-gray-400'
+              }`}
+            >
+              Best Scores ({scoreRows.length})
+            </button>
+          </div>
+
+          {/* Users tab */}
+          {tab === 'users' && (
+            users.length === 0 ? (
+              <p className="text-center text-sm text-gray-400 py-6">No users yet.</p>
+            ) : (
+              <div className="overflow-x-auto -mx-5">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-[#fff9ec] text-[#b8860b]">
+                      <th className="text-left px-4 py-2.5 font-bold">#</th>
+                      <th className="text-left px-3 py-2.5 font-bold">Name</th>
+                      <th className="text-left px-3 py-2.5 font-bold">Phone</th>
+                      <th className="text-center px-3 py-2.5 font-bold">Played</th>
+                      <th className="text-left px-3 py-2.5 font-bold">Joined</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {users.map((user, i) => (
+                      <tr
+                        key={user.id}
+                        className={`border-t border-[#f0e8d8] ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                      >
+                        <td className="px-4 py-2.5 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-2.5 font-bold text-[#1a1a2e] truncate max-w-[80px]">
+                          {user.name}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-500">{user.phone}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          {activeUserIds.has(user.id) ? (
+                            <span className="text-green-600 font-bold">✓</span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap">
+                          {formatDate(user.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {/* Best Scores tab */}
+          {tab === 'scores' && (
+            scoreRows.length === 0 ? (
+              <p className="text-center text-sm text-gray-400 py-6">No scores yet.</p>
+            ) : (
+              <div className="overflow-x-auto -mx-5">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-[#fff9ec] text-[#b8860b]">
+                      <th className="text-left px-4 py-2.5 font-bold">Name</th>
+                      <th className="text-left px-3 py-2.5 font-bold">Category</th>
+                      <th className="text-center px-3 py-2.5 font-bold">Pre</th>
+                      <th className="text-center px-3 py-2.5 font-bold">Best</th>
+                      <th className="text-center px-3 py-2.5 font-bold">Δ</th>
+                      <th className="text-left px-3 py-2.5 font-bold">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scoreRows.map((row, i) => (
+                      <tr
+                        key={`${row.user_id}-${row.category}`}
+                        className={`border-t border-[#f0e8d8] ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                      >
+                        <td className="px-4 py-2.5">
+                          <p className="font-bold text-[#1a1a2e] truncate max-w-[80px]">{row.name}</p>
+                          <p className="text-gray-400 text-[10px]">{row.phone}</p>
+                        </td>
+                        <td className="px-3 py-2.5 capitalize text-gray-600">{row.category}</td>
+                        <td className="px-3 py-2.5 text-center text-gray-500">{row.pre_score}/5</td>
+                        <td className="px-3 py-2.5 text-center font-bold text-[#1a1a2e]">{row.post_score}/5</td>
+                        <td className="px-3 py-2.5 text-center">{delta(row.pre_score, row.post_score)}</td>
+                        <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap">{formatDate(row.taken_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           )}
         </>
       )}
