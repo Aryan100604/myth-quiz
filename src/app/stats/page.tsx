@@ -3,17 +3,16 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-interface ScoreRow {
+// Flat shape from the unique_best_scores view (users join is already done in the view)
+interface BestScoreRow {
   id: string
   user_id: string
   category: string
   pre_score: number
   post_score: number
   taken_at: string
-  users: {
-    name: string
-    phone: string
-  }
+  name: string
+  phone: string
 }
 
 interface Stats {
@@ -23,35 +22,8 @@ interface Stats {
   perfectScores: number
 }
 
-/**
- * For each user+category pair, keep only the row with the highest post_score.
- * If two attempts have the same post_score, keep the most recent one.
- */
-function deduplicateBest(rows: ScoreRow[]): ScoreRow[] {
-  const best: Record<string, ScoreRow> = {}
-
-  for (const row of rows) {
-    const key = `${row.user_id}-${row.category}`
-    const existing = best[key]
-
-    if (
-      !existing ||
-      row.post_score > existing.post_score ||
-      (row.post_score === existing.post_score && row.taken_at > existing.taken_at)
-    ) {
-      best[key] = row
-    }
-  }
-
-  // Sort by best post_score desc, then by name asc
-  return Object.values(best).sort(
-    (a, b) => b.post_score - a.post_score || a.users?.name.localeCompare(b.users?.name)
-  )
-}
-
 export default function StatsPage() {
-  const [allRows, setAllRows] = useState<ScoreRow[]>([])
-  const [tableRows, setTableRows] = useState<ScoreRow[]>([])
+  const [tableRows, setTableRows] = useState<BestScoreRow[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -60,37 +32,43 @@ export default function StatsPage() {
     async function fetchAll() {
       const supabase = createClient()
 
-      // Fetch every attempt — deduplication happens in JS, not DB
-      const { data, error: dbError } = await supabase
-        .from('quiz_scores')
-        .select('*, users(name, phone)')
-        .order('taken_at', { ascending: false })
+      // Run both queries in parallel
+      const [uniqueRes, allRes] = await Promise.all([
+        // Table: one row per user+category (best score) — from the DB view
+        supabase
+          .from('unique_best_scores')
+          .select('*')
+          .order('post_score', { ascending: false }),
 
-      if (dbError) {
-        setError(dbError.message)
+        // Stats cards: raw count of all attempts
+        supabase
+          .from('quiz_scores')
+          .select('post_score, user_id'),
+      ])
+
+      if (uniqueRes.error) {
+        setError(uniqueRes.error.message)
         setLoading(false)
         return
       }
 
-      const scored = data as ScoreRow[]
+      const best = uniqueRes.data as BestScoreRow[]
+      const all = (allRes.data ?? []) as { post_score: number; user_id: string }[]
 
-      // Summary cards use raw data (all attempts)
-      const uniqueUsers = new Set(scored.map((r) => r.user_id)).size
-      const avg = scored.length
-        ? scored.reduce((sum, r) => sum + r.post_score, 0) / scored.length
+      const uniqueUsers = new Set(all.map((r) => r.user_id)).size
+      const avg = all.length
+        ? all.reduce((sum, r) => sum + r.post_score, 0) / all.length
         : 0
-      const perfect = scored.filter((r) => r.post_score === 5).length
+      const perfect = all.filter((r) => r.post_score === 5).length
 
       setStats({
         totalUsers: uniqueUsers,
-        totalAttempts: scored.length,
+        totalAttempts: all.length,
         avgPostScore: Math.round(avg * 10) / 10,
         perfectScores: perfect,
       })
 
-      // Table uses deduplicated data (best per user+category)
-      setAllRows(scored)
-      setTableRows(deduplicateBest(scored))
+      setTableRows(best)
       setLoading(false)
     }
 
@@ -106,14 +84,14 @@ export default function StatsPage() {
     })
   }
 
-  const improvement = (pre: number, post: number) => {
+  const delta = (pre: number, post: number) => {
     const diff = post - pre
     if (diff > 0) return <span className="text-green-600 font-bold">+{diff}</span>
     if (diff < 0) return <span className="text-red-500 font-bold">{diff}</span>
     return <span className="text-gray-400">—</span>
   }
 
-  const dupCount = allRows.length - tableRows.length
+  const dupCount = stats ? stats.totalAttempts - tableRows.length : 0
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
@@ -130,14 +108,13 @@ export default function StatsPage() {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-sm text-red-600">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-600 break-all">
           {error}
         </div>
       )}
 
       {!loading && !error && (
         <>
-          {/* Summary cards — raw totals */}
           {stats && (
             <div className="grid grid-cols-2 gap-2 mb-4">
               <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
@@ -159,7 +136,6 @@ export default function StatsPage() {
             </div>
           )}
 
-          {/* Table header with uniqueness note */}
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-bold text-[#1a1a2e]">
               Best scores · {tableRows.length} unique
@@ -193,15 +169,13 @@ export default function StatsPage() {
                       className={`border-t border-[#f0e8d8] ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
                     >
                       <td className="px-4 py-2.5">
-                        <p className="font-bold text-[#1a1a2e] truncate max-w-[80px]">
-                          {row.users?.name ?? '—'}
-                        </p>
-                        <p className="text-gray-400 text-[10px]">{row.users?.phone ?? ''}</p>
+                        <p className="font-bold text-[#1a1a2e] truncate max-w-[80px]">{row.name}</p>
+                        <p className="text-gray-400 text-[10px]">{row.phone}</p>
                       </td>
                       <td className="px-3 py-2.5 capitalize text-gray-600">{row.category}</td>
                       <td className="px-3 py-2.5 text-center text-gray-500">{row.pre_score}/5</td>
                       <td className="px-3 py-2.5 text-center font-bold text-[#1a1a2e]">{row.post_score}/5</td>
-                      <td className="px-3 py-2.5 text-center">{improvement(row.pre_score, row.post_score)}</td>
+                      <td className="px-3 py-2.5 text-center">{delta(row.pre_score, row.post_score)}</td>
                       <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap">{formatDate(row.taken_at)}</td>
                     </tr>
                   ))}
