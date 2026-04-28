@@ -23,8 +23,35 @@ interface Stats {
   perfectScores: number
 }
 
+/**
+ * For each user+category pair, keep only the row with the highest post_score.
+ * If two attempts have the same post_score, keep the most recent one.
+ */
+function deduplicateBest(rows: ScoreRow[]): ScoreRow[] {
+  const best: Record<string, ScoreRow> = {}
+
+  for (const row of rows) {
+    const key = `${row.user_id}-${row.category}`
+    const existing = best[key]
+
+    if (
+      !existing ||
+      row.post_score > existing.post_score ||
+      (row.post_score === existing.post_score && row.taken_at > existing.taken_at)
+    ) {
+      best[key] = row
+    }
+  }
+
+  // Sort by best post_score desc, then by name asc
+  return Object.values(best).sort(
+    (a, b) => b.post_score - a.post_score || a.users?.name.localeCompare(b.users?.name)
+  )
+}
+
 export default function StatsPage() {
-  const [rows, setRows] = useState<ScoreRow[]>([])
+  const [allRows, setAllRows] = useState<ScoreRow[]>([])
+  const [tableRows, setTableRows] = useState<ScoreRow[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -33,6 +60,7 @@ export default function StatsPage() {
     async function fetchAll() {
       const supabase = createClient()
 
+      // Fetch every attempt — deduplication happens in JS, not DB
       const { data, error: dbError } = await supabase
         .from('quiz_scores')
         .select('*, users(name, phone)')
@@ -45,8 +73,8 @@ export default function StatsPage() {
       }
 
       const scored = data as ScoreRow[]
-      setRows(scored)
 
+      // Summary cards use raw data (all attempts)
       const uniqueUsers = new Set(scored.map((r) => r.user_id)).size
       const avg = scored.length
         ? scored.reduce((sum, r) => sum + r.post_score, 0) / scored.length
@@ -60,6 +88,9 @@ export default function StatsPage() {
         perfectScores: perfect,
       })
 
+      // Table uses deduplicated data (best per user+category)
+      setAllRows(scored)
+      setTableRows(deduplicateBest(scored))
       setLoading(false)
     }
 
@@ -81,6 +112,8 @@ export default function StatsPage() {
     if (diff < 0) return <span className="text-red-500 font-bold">{diff}</span>
     return <span className="text-gray-400">—</span>
   }
+
+  const dupCount = allRows.length - tableRows.length
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
@@ -104,16 +137,16 @@ export default function StatsPage() {
 
       {!loading && !error && (
         <>
-          {/* Summary cards */}
+          {/* Summary cards — raw totals */}
           {stats && (
-            <div className="grid grid-cols-2 gap-2 mb-5">
+            <div className="grid grid-cols-2 gap-2 mb-4">
               <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
                 <p className="text-2xl font-black text-[#e8870a]">{stats.totalUsers}</p>
                 <p className="text-xs text-gray-400 mt-0.5">Users</p>
               </div>
               <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
                 <p className="text-2xl font-black text-[#e8870a]">{stats.totalAttempts}</p>
-                <p className="text-xs text-gray-400 mt-0.5">Attempts</p>
+                <p className="text-xs text-gray-400 mt-0.5">Total Attempts</p>
               </div>
               <div className="bg-[#fff9ec] border border-[#ffe599] rounded-2xl p-3 text-center">
                 <p className="text-2xl font-black text-[#e8870a]">{stats.avgPostScore}/5</p>
@@ -126,8 +159,19 @@ export default function StatsPage() {
             </div>
           )}
 
-          {/* Table */}
-          {rows.length === 0 ? (
+          {/* Table header with uniqueness note */}
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-bold text-[#1a1a2e]">
+              Best scores · {tableRows.length} unique
+            </p>
+            {dupCount > 0 && (
+              <p className="text-[10px] text-gray-400">
+                {dupCount} repeat attempt{dupCount > 1 ? 's' : ''} hidden
+              </p>
+            )}
+          </div>
+
+          {tableRows.length === 0 ? (
             <p className="text-center text-sm text-gray-400 py-6">No data yet.</p>
           ) : (
             <div className="overflow-x-auto -mx-5">
@@ -137,15 +181,15 @@ export default function StatsPage() {
                     <th className="text-left px-4 py-2.5 font-bold">Name</th>
                     <th className="text-left px-3 py-2.5 font-bold">Category</th>
                     <th className="text-center px-3 py-2.5 font-bold">Pre</th>
-                    <th className="text-center px-3 py-2.5 font-bold">Post</th>
+                    <th className="text-center px-3 py-2.5 font-bold">Best</th>
                     <th className="text-center px-3 py-2.5 font-bold">Δ</th>
                     <th className="text-left px-3 py-2.5 font-bold">Date</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row, i) => (
+                  {tableRows.map((row, i) => (
                     <tr
-                      key={row.id}
+                      key={`${row.user_id}-${row.category}`}
                       className={`border-t border-[#f0e8d8] ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
                     >
                       <td className="px-4 py-2.5">
