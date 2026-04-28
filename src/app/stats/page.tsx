@@ -18,13 +18,25 @@ export default function StatsPage() {
   useEffect(() => {
     async function fetchUsers() {
       const supabase = createClient()
-      const { data, error: dbError } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false })
+      const allUsers: UserRow[] = []
+      const PAGE_SIZE = 1000
+      let from = 0
 
-      if (dbError) { setError(dbError.message); setLoading(false); return }
-      setUsers(data as UserRow[])
+      // Paginate through all rows — Supabase caps each request at 1000
+      while (true) {
+        const { data, error: dbError } = await supabase
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE_SIZE - 1)
+
+        if (dbError) { setError(dbError.message); setLoading(false); return }
+        allUsers.push(...(data as UserRow[]))
+        if (data.length < PAGE_SIZE) break
+        from += PAGE_SIZE
+      }
+
+      setUsers(allUsers)
       setLoading(false)
     }
 
