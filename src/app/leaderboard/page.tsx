@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuizStore } from '@/store/quiz'
 import { createClient } from '@/lib/supabase/client'
+import PageHeader from '@/components/PageHeader'
 
 const TABS = ['Global', 'This Week'] as const
 
@@ -18,7 +19,7 @@ interface LeaderboardRow {
 
 export default function LeaderboardPage() {
   const router = useRouter()
-  const { userName, postScore, category, userId } = useQuizStore()
+  const { userName, category, userId } = useQuizStore()
   const [tab, setTab] = useState<typeof TABS[number]>('Global')
   const [entries, setEntries] = useState<LeaderboardRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -53,14 +54,17 @@ export default function LeaderboardPage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
   }
 
-  const rankIcon = (i: number) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1)
+  const rankIcon = (i: number) =>
+    i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1)
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
-      <p className="text-xs font-bold text-[#b8860b] tracking-widest uppercase mb-1">HALL OF FAME</p>
-      <h1 className="text-2xl font-black text-[#1a1a2e] mb-3">Leaderboard</h1>
+      <PageHeader
+        step={7}
+        onBack={() => router.push('/results')}
+        title="Leaderboard"
+      />
 
-      {/* Tabs */}
       <div className="flex bg-[#fff9ec] rounded-xl p-1 gap-1 mb-3">
         {TABS.map((t) => (
           <button
@@ -77,7 +81,6 @@ export default function LeaderboardPage() {
         ))}
       </div>
 
-      {/* Invite strip */}
       <button
         onClick={shareOnWhatsApp}
         className="w-full bg-gradient-to-br from-[#fff9ec] to-[#fff3d0] border-2 border-dashed border-[#f5a623] rounded-xl p-3 text-center mb-3"
@@ -89,7 +92,6 @@ export default function LeaderboardPage() {
         </span>
       </button>
 
-      {/* Rankings */}
       <div className="space-y-2">
         {loading ? (
           <p className="text-center text-sm text-gray-400 py-6">Loading...</p>
@@ -105,7 +107,9 @@ export default function LeaderboardPage() {
                   isMe ? 'bg-[#fff9ec] border-[#f5a623]' : 'bg-white border-[#f0e8d8]'
                 }`}
               >
-                <span className="text-sm font-black text-[#b8860b] w-6 text-center">{rankIcon(i)}</span>
+                <span className="text-sm font-black text-[#b8860b] w-6 text-center">
+                  {rankIcon(i)}
+                </span>
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#f5a623] to-[#e8870a] flex items-center justify-center text-white text-xs font-black flex-shrink-0">
                   {entry.name[0].toUpperCase()}
                 </div>
@@ -113,7 +117,9 @@ export default function LeaderboardPage() {
                   <p className="text-sm font-bold text-[#1a1a2e] truncate">
                     {entry.name}{isMe ? ' ⭐' : ''}
                   </p>
-                  <p className="text-xs text-gray-400 capitalize">{entry.category} · {entry.post_score}/5</p>
+                  <p className="text-xs text-gray-400 capitalize">
+                    {entry.category} · {entry.post_score}/5
+                  </p>
                 </div>
                 <span className="text-sm font-black text-[#e8870a]">{entry.points}</span>
               </div>
@@ -132,7 +138,7 @@ export default function LeaderboardPage() {
           <div className="text-lg">🏆</div>
           <div className="text-[9px] font-semibold text-[#e8870a]">Leaderboard</div>
         </button>
-        <button onClick={() => router.push('/lesson/' + category)} className="text-center px-3">
+        <button onClick={() => router.push(`/lesson/${category}`)} className="text-center px-3">
           <div className="text-lg">📖</div>
           <div className="text-[9px] font-semibold text-gray-300">Lessons</div>
         </button>

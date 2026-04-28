@@ -1,14 +1,17 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import { useQuizStore } from '@/store/quiz'
 import { LESSONS, CATEGORY_META } from '@/lib/questions'
+import PageHeader from '@/components/PageHeader'
 import type { Category } from '@/types'
 
 export default function LessonPage() {
   const router = useRouter()
   const params = useParams()
   const category = (params.category as Category) ?? 'greek'
+  const { userId } = useQuizStore()
 
   const lesson = LESSONS[category] ?? LESSONS.greek
   const meta = CATEGORY_META[category] ?? CATEGORY_META.greek
@@ -17,9 +20,21 @@ export default function LessonPage() {
   const [elapsed, setElapsed] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  useEffect(() => {
+    if (!userId) router.replace('/')
+  }, [userId, router])
+
+  // Clean up audio timer when leaving the page
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [])
+
   function toggleAudio() {
     if (playing) {
       clearInterval(timerRef.current!)
+      timerRef.current = null
       setPlaying(false)
     } else {
       setPlaying(true)
@@ -37,6 +52,12 @@ export default function LessonPage() {
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
+      <PageHeader
+        step={4}
+        onBack={() => router.push('/categories')}
+        title="Lesson"
+      />
+
       <div className="bg-gradient-to-br from-[#fff3d0] to-[#ffe599] rounded-2xl p-4 mb-3 text-center">
         <div className="text-4xl mb-1">{lesson.icon}</div>
         <p className="text-xs font-bold text-[#b8860b] tracking-widest uppercase mb-1">NOW LEARN</p>

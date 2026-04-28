@@ -1,19 +1,31 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuizStore } from '@/store/quiz'
 import { CATEGORY_META } from '@/lib/questions'
+import PageHeader from '@/components/PageHeader'
 import type { Category } from '@/types'
 
 const CATEGORIES: Category[] = ['greek', 'hindu', 'norse', 'egyptian']
 
 export default function CategoriesPage() {
   const router = useRouter()
-  const { category, setCategory, userName } = useQuizStore()
+  const { category, setCategory, userName, userId } = useQuizStore()
+
+  useEffect(() => {
+    if (!userId) router.replace('/')
+  }, [userId, router])
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
-      <p className="text-xs font-bold text-[#b8860b] tracking-widest uppercase mb-1 mt-2">
+      <PageHeader
+        step={2}
+        onBack={() => router.push('/')}
+        title="MythIQ"
+      />
+
+      <p className="text-xs font-bold text-[#b8860b] tracking-widest uppercase mb-1">
         HEY {userName || 'THERE'}, CHOOSE YOUR
       </p>
       <h1 className="text-3xl font-black text-[#1a1a2e] mb-1">Mythology</h1>

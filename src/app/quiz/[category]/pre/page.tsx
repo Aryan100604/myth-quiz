@@ -1,17 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuizStore } from '@/store/quiz'
 import { QUESTIONS, CATEGORY_META } from '@/lib/questions'
+import PageHeader from '@/components/PageHeader'
 import type { Category } from '@/types'
 
 export default function PreQuizPage() {
   const router = useRouter()
   const params = useParams()
   const category = (params.category as Category) ?? 'greek'
-  const setPreScore = useQuizStore((s) => s.setPreScore)
-  const setCategory = useQuizStore((s) => s.setCategory)
+  const { setPreScore, userId } = useQuizStore()
 
   const questions = QUESTIONS[category] ?? QUESTIONS.greek
   const meta = CATEGORY_META[category] ?? CATEGORY_META.greek
@@ -20,6 +20,19 @@ export default function PreQuizPage() {
   const [score, setScore] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
   const [answered, setAnswered] = useState(false)
+
+  useEffect(() => {
+    if (!userId) router.replace('/')
+  }, [userId, router])
+
+  function handleBack() {
+    if (current === 0) {
+      router.push('/categories')
+      return
+    }
+    const leave = window.confirm('Leave the quiz? Your progress will be lost.')
+    if (leave) router.push('/categories')
+  }
 
   function handleAnswer(idx: number) {
     if (answered) return
@@ -34,8 +47,7 @@ export default function PreQuizPage() {
       setSelected(null)
       setAnswered(false)
     } else {
-      setCategory(category)
-      setPreScore(score + (selected === questions[current].correctIndex ? 0 : 0))
+      setPreScore(score)
       router.push(`/lesson/${category}`)
     }
   }
@@ -45,16 +57,17 @@ export default function PreQuizPage() {
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
-      <p className="text-xs font-bold text-[#b8860b] tracking-widest uppercase mb-2">
-        PRE-QUIZ · QUESTION {current + 1}/{questions.length}
-      </p>
+      <PageHeader step={3} onBack={handleBack} title="Pre-Quiz" />
 
-      <div className="bg-[#f0e8d0] rounded-full h-1.5 mb-4">
+      <div className="bg-[#f0e8d0] rounded-full h-1.5 mb-1">
         <div
           className="bg-gradient-to-r from-[#f5a623] to-[#e8870a] h-1.5 rounded-full transition-all duration-300"
           style={{ width: `${progress}%` }}
         />
       </div>
+      <p className="text-xs text-gray-400 text-right mb-3">
+        {current + 1} / {questions.length}
+      </p>
 
       <div className="bg-gradient-to-br from-[#fff9ec] to-[#fff3d0] rounded-2xl p-4 mb-3 border border-[#ffe599]">
         <p className="text-xs font-bold text-[#b8860b] mb-1">{meta.icon} {meta.label} Mythology</p>

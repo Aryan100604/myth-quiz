@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuizStore } from '@/store/quiz'
 import { QUESTIONS, CATEGORY_META } from '@/lib/questions'
 import { createClient } from '@/lib/supabase/client'
+import PageHeader from '@/components/PageHeader'
 import type { Category } from '@/types'
 
 export default function PostQuizPage() {
@@ -22,6 +23,19 @@ export default function PostQuizPage() {
   const [answered, setAnswered] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  useEffect(() => {
+    if (!userId) router.replace('/')
+  }, [userId, router])
+
+  function handleBack() {
+    if (current === 0) {
+      router.push(`/lesson/${category}`)
+      return
+    }
+    const leave = window.confirm('Leave the quiz? Your progress will be lost.')
+    if (leave) router.push(`/lesson/${category}`)
+  }
+
   function handleAnswer(idx: number) {
     if (answered) return
     setSelected(idx)
@@ -30,10 +44,7 @@ export default function PostQuizPage() {
   }
 
   async function handleNext() {
-    const isLastQuestion = current === questions.length - 1
-    const finalScore = score + (selected === questions[current].correctIndex ? 1 : 0)
-
-    if (!isLastQuestion) {
+    if (current < questions.length - 1) {
       setCurrent((c) => c + 1)
       setSelected(null)
       setAnswered(false)
@@ -41,17 +52,17 @@ export default function PostQuizPage() {
     }
 
     setSaving(true)
-    setPostScore(finalScore)
+    setPostScore(score)
 
-    if (userId) {
-      const supabase = createClient()
-      await supabase.from('quiz_scores').insert({
-        user_id: userId,
-        category,
-        pre_score: preScore,
-        post_score: finalScore,
-      })
-    }
+    const supabase = createClient()
+    const { error } = await supabase.from('quiz_scores').insert({
+      user_id: userId,
+      category,
+      pre_score: preScore,
+      post_score: score,
+    })
+
+    if (error) console.error('Failed to save score:', error)
 
     router.push('/results')
   }
@@ -61,16 +72,17 @@ export default function PostQuizPage() {
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
-      <p className="text-xs font-bold text-[#b8860b] tracking-widest uppercase mb-2">
-        POST-QUIZ · QUESTION {current + 1}/{questions.length}
-      </p>
+      <PageHeader step={5} onBack={handleBack} title="Post-Quiz" />
 
-      <div className="bg-[#f0e8d0] rounded-full h-1.5 mb-4">
+      <div className="bg-[#f0e8d0] rounded-full h-1.5 mb-1">
         <div
           className="bg-gradient-to-r from-[#f5a623] to-[#e8870a] h-1.5 rounded-full transition-all duration-300"
           style={{ width: `${progress}%` }}
         />
       </div>
+      <p className="text-xs text-gray-400 text-right mb-3">
+        {current + 1} / {questions.length}
+      </p>
 
       <div className="bg-gradient-to-br from-[#fff9ec] to-[#fff3d0] rounded-2xl p-4 mb-3 border border-[#ffe599]">
         <p className="text-xs font-bold text-[#b8860b] mb-1">{meta.icon} {meta.label} Mythology</p>
