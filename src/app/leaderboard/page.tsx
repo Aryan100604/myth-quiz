@@ -1,38 +1,59 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuizStore } from '@/store/quiz'
+import { createClient } from '@/lib/supabase/client'
 
-const MOCK_ENTRIES = [
-  { rank: 1, name: 'Rahul', initial: 'R', category: 'Greek', score: '5/5', points: 500 },
-  { rank: 2, name: 'Priya', initial: 'P', category: 'Hindu', score: '4/5', points: 400 },
-  { rank: 3, name: 'Arjun', initial: 'A', category: 'Norse', score: '4/5', points: 380 },
-  { rank: 4, name: 'Sneha', initial: 'S', category: 'Egyptian', score: '3/5', points: 300 },
-]
+const TABS = ['Global', 'This Week'] as const
 
-const TABS = ['Friends', 'Global', 'This Week'] as const
+interface LeaderboardRow {
+  name: string
+  user_id: string
+  category: string
+  post_score: number
+  points: number
+  taken_at: string
+}
 
 export default function LeaderboardPage() {
   const router = useRouter()
-  const { userName, postScore, category } = useQuizStore()
+  const { userName, postScore, category, userId } = useQuizStore()
   const [tab, setTab] = useState<typeof TABS[number]>('Global')
+  const [entries, setEntries] = useState<LeaderboardRow[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const myPoints = postScore * 100
-  const myEntry = {
-    rank: 3,
-    name: `${userName || 'You'} ⭐`,
-    initial: (userName?.[0] ?? 'Y').toUpperCase(),
-    category: category.charAt(0).toUpperCase() + category.slice(1),
-    score: `${postScore}/5`,
-    points: myPoints,
-    isMe: true,
-  }
+  useEffect(() => {
+    async function fetchLeaderboard() {
+      setLoading(true)
+      const supabase = createClient()
+
+      let query = supabase
+        .from('leaderboard')
+        .select('*')
+        .order('points', { ascending: false })
+        .limit(10)
+
+      if (tab === 'This Week') {
+        const weekAgo = new Date()
+        weekAgo.setDate(weekAgo.getDate() - 7)
+        query = query.gte('taken_at', weekAgo.toISOString())
+      }
+
+      const { data } = await query
+      setEntries(data ?? [])
+      setLoading(false)
+    }
+
+    fetchLeaderboard()
+  }, [tab])
 
   function shareOnWhatsApp() {
     const text = `Join me on MythIQ and test your mythology knowledge! 🏛️`
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
   }
+
+  const rankIcon = (i: number) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1)
 
   return (
     <div className="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[580px] p-5">
@@ -70,38 +91,34 @@ export default function LeaderboardPage() {
 
       {/* Rankings */}
       <div className="space-y-2">
-        {MOCK_ENTRIES.map((entry) => (
-          <div
-            key={entry.rank}
-            className="flex items-center gap-2.5 bg-white border-2 border-[#f0e8d8] rounded-xl p-2.5"
-          >
-            <span className="text-sm font-black text-[#b8860b] w-6 text-center">
-              {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank}
-            </span>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#f5a623] to-[#e8870a] flex items-center justify-center text-white text-xs font-black flex-shrink-0">
-              {entry.initial}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-[#1a1a2e] truncate">{entry.name}</p>
-              <p className="text-xs text-gray-400">{entry.category} · {entry.score}</p>
-            </div>
-            <span className="text-sm font-black text-[#e8870a]">{entry.points}</span>
-          </div>
-        ))}
-
-        {/* My row */}
-        {userName && (
-          <div className="flex items-center gap-2.5 bg-[#fff9ec] border-2 border-[#f5a623] rounded-xl p-2.5">
-            <span className="text-sm font-black text-[#b8860b] w-6 text-center">You</span>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#cd7f32] to-[#a0522d] flex items-center justify-center text-white text-xs font-black flex-shrink-0">
-              {myEntry.initial}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-[#1a1a2e] truncate">{myEntry.name}</p>
-              <p className="text-xs text-gray-400">{myEntry.category} · {myEntry.score}</p>
-            </div>
-            <span className="text-sm font-black text-[#e8870a]">{myEntry.points}</span>
-          </div>
+        {loading ? (
+          <p className="text-center text-sm text-gray-400 py-6">Loading...</p>
+        ) : entries.length === 0 ? (
+          <p className="text-center text-sm text-gray-400 py-6">No scores yet. Be the first! 🏆</p>
+        ) : (
+          entries.map((entry, i) => {
+            const isMe = entry.user_id === userId
+            return (
+              <div
+                key={`${entry.user_id}-${i}`}
+                className={`flex items-center gap-2.5 border-2 rounded-xl p-2.5 ${
+                  isMe ? 'bg-[#fff9ec] border-[#f5a623]' : 'bg-white border-[#f0e8d8]'
+                }`}
+              >
+                <span className="text-sm font-black text-[#b8860b] w-6 text-center">{rankIcon(i)}</span>
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#f5a623] to-[#e8870a] flex items-center justify-center text-white text-xs font-black flex-shrink-0">
+                  {entry.name[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-[#1a1a2e] truncate">
+                    {entry.name}{isMe ? ' ⭐' : ''}
+                  </p>
+                  <p className="text-xs text-gray-400 capitalize">{entry.category} · {entry.post_score}/5</p>
+                </div>
+                <span className="text-sm font-black text-[#e8870a]">{entry.points}</span>
+              </div>
+            )
+          })
         )}
       </div>
 

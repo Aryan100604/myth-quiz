@@ -4,13 +4,14 @@ import { useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuizStore } from '@/store/quiz'
 import { QUESTIONS, CATEGORY_META } from '@/lib/questions'
+import { createClient } from '@/lib/supabase/client'
 import type { Category } from '@/types'
 
 export default function PostQuizPage() {
   const router = useRouter()
   const params = useParams()
   const category = (params.category as Category) ?? 'greek'
-  const { setPostScore, preScore } = useQuizStore()
+  const { setPostScore, preScore, userId } = useQuizStore()
 
   const questions = QUESTIONS[category] ?? QUESTIONS.greek
   const meta = CATEGORY_META[category] ?? CATEGORY_META.greek
@@ -19,6 +20,7 @@ export default function PostQuizPage() {
   const [score, setScore] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
   const [answered, setAnswered] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   function handleAnswer(idx: number) {
     if (answered) return
@@ -27,16 +29,31 @@ export default function PostQuizPage() {
     if (idx === questions[current].correctIndex) setScore((s) => s + 1)
   }
 
-  function handleNext() {
-    const newScore = score + (selected === questions[current].correctIndex ? 1 : 0)
-    if (current < questions.length - 1) {
+  async function handleNext() {
+    const isLastQuestion = current === questions.length - 1
+    const finalScore = score + (selected === questions[current].correctIndex ? 1 : 0)
+
+    if (!isLastQuestion) {
       setCurrent((c) => c + 1)
       setSelected(null)
       setAnswered(false)
-    } else {
-      setPostScore(newScore)
-      router.push('/results')
+      return
     }
+
+    setSaving(true)
+    setPostScore(finalScore)
+
+    if (userId) {
+      const supabase = createClient()
+      await supabase.from('quiz_scores').insert({
+        user_id: userId,
+        category,
+        pre_score: preScore,
+        post_score: finalScore,
+      })
+    }
+
+    router.push('/results')
   }
 
   const q = questions[current]
@@ -84,9 +101,10 @@ export default function PostQuizPage() {
       {answered && (
         <button
           onClick={handleNext}
-          className="w-full bg-gradient-to-br from-[#f5a623] to-[#e8870a] text-white rounded-2xl py-4 text-base font-bold"
+          disabled={saving}
+          className="w-full bg-gradient-to-br from-[#f5a623] to-[#e8870a] text-white rounded-2xl py-4 text-base font-bold disabled:opacity-60"
         >
-          {current < questions.length - 1 ? 'Next Question →' : 'See My Results →'}
+          {saving ? 'Saving...' : current < questions.length - 1 ? 'Next Question →' : 'See My Results →'}
         </button>
       )}
     </div>
